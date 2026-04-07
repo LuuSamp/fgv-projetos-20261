@@ -1,4 +1,4 @@
-# Task 1 — RDS MySQL + classicmodels (Grupo 4 / Aluno Luciano)
+# Task 1 — RDS MySQL + classicmodels (Grupo 4)
 
 Fluxo pedido em [rds.md](../../rds.md): provisionar MySQL no Amazon RDS, carregar o banco de exemplo `classicmodels`, validar tabelas e dados. Opcionalmente deletar a instância RDS logo após.
 
@@ -53,7 +53,7 @@ O dump SQL por omissão resolve para `assignment_1/task_1/data/mysqlsampledataba
 ## Execução (ordem)
 
 ```bash
-cd grupo_4/aluno_luciano
+cd grupo_4/final
 python scripts/a_provision_rds.py
 python scripts/b_load_classicmodels.py
 python scripts/c_validate_classicmodels.py
