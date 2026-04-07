@@ -8,6 +8,7 @@ from pathlib import Path
 
 import mysql.connector
 from mysql.connector import errors as mysql_errors
+from mysql.connector import Error
 
 from classicmodels_rds.config import Settings
 
@@ -78,6 +79,28 @@ def run_sql_file(conn, sql_path: Path) -> None:
     print(f"[MySQL] SQL file finished ({n} statement result(s)).")
 
 
+def table_existence(conn, database: str) -> dict[str, bool]:
+    """Return whether each EXPECTED_TABLE exists in `database`."""
+    out: dict[str, bool] = {}
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT TABLE_NAME
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'
+        """, (database,))
+        
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        for table in EXPECTED_TABLES:
+            out[table] = table in existing_tables
+
+    finally:
+        cursor.close()
+
+    return out
+
+
 def table_row_counts(conn, database: str) -> dict[str, int]:
     """Return row counts for EXPECTED_TABLES in `database`."""
     out: dict[str, int] = {}
@@ -94,35 +117,92 @@ def table_row_counts(conn, database: str) -> dict[str, int]:
     return out
 
 
-def validate_classicmodels(conn, settings: Settings) -> bool:
-    """
-    Ensure all expected tables exist with at least one row.
-    Prints a short report; returns True if all checks pass.
-    """
-    db = settings.db_name
+def table_column_info(conn, database: str) -> dict[str, list[dict]]:
+    """Return column metadata for EXPECTED_TABLES in `database`."""
+    out: dict[str, list[dict]] = {}
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            "SELECT TABLE_NAME FROM information_schema.TABLES "
-            "WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'",
-            (db,),
-        )
-        existing = {r[0] for r in cursor.fetchall()}
+        for table in EXPECTED_TABLES:
+            cursor.execute("""
+                SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_KEY
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                ORDER BY ORDINAL_POSITION
+            """, (database, table))
+
+            columns = cursor.fetchall()
+
+            out[table] = [
+                {
+                    "name": col_name,
+                    "type": data_type,
+                    "nullable": is_nullable,
+                    "key": col_key,
+                }
+                for col_name, data_type, is_nullable, col_key in columns
+            ]
     finally:
         cursor.close()
 
-    missing = [t for t in EXPECTED_TABLES if t not in existing]
-    if missing:
-        print(f"[validate] Missing tables in `{db}`: {missing}")
+    return out
+
+
+def validate_classicmodels(conn, settings: Settings) -> bool:
+    """
+    Ensure all expected tables exist and print row counts
+    and column info.
+
+    Prints a report; returns True if all tables exist and
+    have rows, False otherwise.
+    """
+    db = settings.db_name
+    all_ok = True
+
+    print(f"[validate] Database `{db}`")
+
+    existence = table_existence(conn, db)
+    row_counts = table_row_counts(conn, db)
+    column_info = table_column_info(conn, db)
+
+    # Check missing tables
+    missing_tables = [t for t, exists in existence.items() if not exists]
+    if missing_tables:
+        print(f"[validate] Missing tables: {missing_tables}")
         return False
 
-    counts = table_row_counts(conn, db)
-    print(f"[validate] Database `{db}` — row counts:")
-    ok = True
-    for name in EXPECTED_TABLES:
-        n = counts.get(name, 0)
-        status = "ok" if n > 0 else "FAIL (zero rows)"
-        if n <= 0:
-            ok = False
-        print(f"  {name:16}  {n:8}  {status}")
-    return ok
+    for table in EXPECTED_TABLES:
+        # Rows
+        count = row_counts.get(table, 0)
+        status = "OK" if count > 0 else "EMPTY"
+
+        if count == 0:
+            all_ok = False
+
+        print(f"\n\nTable: {table} | Rows: {count} | Status: {status}")
+
+        # Columns
+        columns = column_info.get(table, [])
+
+        if not columns:
+            print("No columns found")
+            all_ok = False
+            continue
+
+        print(f"{'Column':<25} {'Type':<15} {'Nullable':<10} {'Key':<5}")
+        print("-" * 56)
+
+        for col in columns:
+            print(
+                f"{col['name']:<25} "
+                f"{col['type']:<15} "
+                f"{col['nullable']:<10} "
+                f"{col['key']:<5}"
+            )
+
+    print("")
+    if all_ok:
+        print("[validate] Validation completed: all tables OK.")
+    else:
+        print("[validate] Validation warning: issues found.")
+
+    return all_ok
