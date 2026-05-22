@@ -118,4 +118,4 @@ No ambiente de lab, o workgroup `primary` costuma já apontar para um bucket vá
 
 ## Exemplo de resultado após testar em `classicmodels_dashboard.ipynb`:
 
-![Resultado do dashboard](results/plot.png)
+![Resultado do dashboard](example_image.png)
