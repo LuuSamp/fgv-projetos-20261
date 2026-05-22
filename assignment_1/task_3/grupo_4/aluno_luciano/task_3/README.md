@@ -51,3 +51,6 @@ No ambiente de lab, o workgroup `primary` costuma já apontar para um bucket vá
 1. Três consultas Athena bem-sucedidas: `dim_products` (4.2), vendas por país (4.3), detalhamento (4.4).
 2. Dashboard com intervalo de datas, país, linha de produto, Top N e gráfico de barras coerente com os filtros.
 3. Apenas esquema estrela da Task 2 — sem SQL contra o RDS da Task 1.
+
+
+![example_image](./example_image.png)
