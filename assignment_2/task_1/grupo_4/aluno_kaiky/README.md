@@ -2,7 +2,7 @@
 
 **Group 4**
 
-Prepares the `classicmodels` OLTP database (MySQL on RDS) for incremental ETL:
+Prepares thae `clssicmodels` OLTP database (MySQL on RDS) for incremental ETL:
 
 - Control metadata in `etl_watermark`
 - Scripts to simulate new orders
@@ -10,7 +10,7 @@ Prepares the `classicmodels` OLTP database (MySQL on RDS) for incremental ETL:
 
 ## Prerequisites
 
-- RDS MySQL instance with database `classicmodels` already loaded
+- RDS MySQL instance with database `classicmodels` already loaded (assignment_1 / task_1)
 - Python 3.10+
 - AWS credentials with `rds:DescribeDBInstances` (to resolve `DB_HOST` automatically)
 - Network access to the RDS endpoint (security group / VPN)
