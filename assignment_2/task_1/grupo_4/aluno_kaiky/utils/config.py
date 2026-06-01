@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+from utils.rds_discovery import fill_db_host_if_missing
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ENV_PATH = _PROJECT_ROOT / ".env"
@@ -35,8 +36,6 @@ def load_settings() -> Settings:
     load_dotenv(_ENV_PATH)
 
     if not os.getenv("DB_HOST", "").strip():
-        from utils.rds_discovery import fill_db_host_if_missing
-
         fill_db_host_if_missing(_ENV_PATH)
         load_dotenv(_ENV_PATH, override=True)
 
