@@ -1,7 +1,10 @@
 """JDBC extraction: watermark read and incremental delta from classicmodels."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+
+from pipeline.spark_helpers import is_empty
 from pyspark.sql import DataFrame, SparkSession
 
 _MYSQL_DRIVER = "com.mysql.cj.jdbc.Driver"
@@ -20,8 +23,13 @@ def _read_query(*, spark: SparkSession, url: str, user: str, password: str, quer
     )
 
 
-def _read_table(*, spark: SparkSession, url: str, user: str, password: str, table: str) -> DataFrame:
-    return _read_query(spark=spark, url=url, user=user, password=password, query=f"SELECT * FROM {table}")
+def _sql_in_ints(values: list[int]) -> str:
+    return ",".join(str(v) for v in values)
+
+
+def _sql_in_strings(values: list[str]) -> str:
+    escaped = (v.replace("'", "''") for v in values)
+    return ",".join(f"'{v}'" for v in escaped)
 
 
 def read_watermark(
@@ -76,23 +84,80 @@ def extract_delta(
         password=password,
         query=f"SELECT * FROM orders WHERE orderDate > DATE('{cutoff}')",
     )
-    order_numbers = [int(r["orderNumber"]) for r in orders.select("orderNumber").distinct().collect()]
-    if not order_numbers:
+    if is_empty(orders):
         return None
 
-    in_clause = ",".join(str(n) for n in order_numbers)
+    order_numbers = [int(r["orderNumber"]) for r in orders.select("orderNumber").distinct().collect()]
+    order_in = _sql_in_ints(order_numbers)
+
     orderdetails = _read_query(
         spark=spark,
         url=jdbc_url,
         user=user,
         password=password,
-        query=f"SELECT * FROM orderdetails WHERE orderNumber IN ({in_clause})",
+        query=f"SELECT * FROM orderdetails WHERE orderNumber IN ({order_in})",
     )
-    customers = _read_table(spark=spark, url=jdbc_url, user=user, password=password, table="customers")
-    products = _read_table(spark=spark, url=jdbc_url, user=user, password=password, table="products")
-    productlines = _read_table(spark=spark, url=jdbc_url, user=user, password=password, table="productlines")
-    employees = _read_table(spark=spark, url=jdbc_url, user=user, password=password, table="employees")
-    offices = _read_table(spark=spark, url=jdbc_url, user=user, password=password, table="offices")
+
+    customer_numbers = [
+        int(r["customerNumber"]) for r in orders.select("customerNumber").distinct().collect()
+    ]
+    customer_in = _sql_in_ints(customer_numbers)
+
+    product_codes = [
+        str(r["productCode"]) for r in orderdetails.select("productCode").distinct().collect()
+    ]
+    product_in = _sql_in_strings(product_codes)
+
+    customers = _read_query(
+        spark=spark,
+        url=jdbc_url,
+        user=user,
+        password=password,
+        query=f"SELECT * FROM customers WHERE customerNumber IN ({customer_in})",
+    )
+    products = _read_query(
+        spark=spark,
+        url=jdbc_url,
+        user=user,
+        password=password,
+        query=f"SELECT * FROM products WHERE productCode IN ({product_in})",
+    )
+    productlines = _read_query(
+        spark=spark,
+        url=jdbc_url,
+        user=user,
+        password=password,
+        query=(
+            "SELECT * FROM productlines WHERE productLine IN ("
+            f"SELECT DISTINCT productLine FROM products WHERE productCode IN ({product_in})"
+            ")"
+        ),
+    )
+    employees = _read_query(
+        spark=spark,
+        url=jdbc_url,
+        user=user,
+        password=password,
+        query=(
+            "SELECT * FROM employees WHERE employeeNumber IN ("
+            "SELECT DISTINCT salesRepEmployeeNumber FROM customers "
+            f"WHERE customerNumber IN ({customer_in}) AND salesRepEmployeeNumber IS NOT NULL"
+            ")"
+        ),
+    )
+    offices = _read_query(
+        spark=spark,
+        url=jdbc_url,
+        user=user,
+        password=password,
+        query=(
+            "SELECT * FROM offices WHERE officeCode IN ("
+            "SELECT DISTINCT officeCode FROM employees WHERE employeeNumber IN ("
+            "SELECT DISTINCT salesRepEmployeeNumber FROM customers "
+            f"WHERE customerNumber IN ({customer_in}) AND salesRepEmployeeNumber IS NOT NULL"
+            "))"
+        ),
+    )
 
     return DeltaExtract(
         orders=orders,

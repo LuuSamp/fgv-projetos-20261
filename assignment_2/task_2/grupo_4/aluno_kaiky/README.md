@@ -11,7 +11,7 @@ RDS (classicmodels + etl_watermark)
   → Glue Job (JDBC, orderDate > watermark)
   → S3 analytics/ (fact_orders particionado + dim_*)
   → Glue Catalog / Athena
-EventBridge (cron semanal) → StartGlueJob
+Glue trigger agendado (cron semanal, mesmo `glue_schedule_cron`)
 ```
 
 ## Pré-requisitos
@@ -63,7 +63,7 @@ cd assignment_2/task_2/grupo_4/aluno_kaiky
 python main.py deploy
 ```
 
-Cria: bucket S3, script Glue no S3, Glue Connection/Job, catálogo (`fact_orders` com partition keys), regra **EventBridge** (cron padrão: segunda 12:00 UTC), regra SG **3306** RDS ← Glue.
+Cria: bucket S3, script Glue no S3, Glue Connection/Job, catálogo (`fact_orders` com partition keys), **Glue trigger SCHEDULED** (cron padrão: segunda 12:00 UTC), regra SG **3306** RDS ← Glue.
 
 ## Execução direta (recomendado)
 
@@ -123,11 +123,12 @@ SELECT COUNT(*) FROM fact_orders WHERE order_year = 2025 AND order_month = 6;
 
 Mesmos nomes de tabelas/colunas; `sales_amount = quantity_ordered * price_each`. Dimensões: merge incremental (Opção B) apenas para entidades tocadas pelo delta. Fato: merge por `(order_id, product_id)` nas partições afetadas.
 
-## EventBridge e IAM (3.1.2)
+## Agendamento e IAM (3.1.2)
 
-- **Role do target:** `glue_role_name` (default **`LabRole`**), mesma do Glue Job.
-- Terraform anexa policy inline `glue:StartJobRun` no job (recurso `aws_iam_role_policy.eventbridge_start_glue`) quando `eventbridge_enabled = true`.
-- Se o lab bloquear `iam:PutRolePolicy`, defina `eventbridge_enabled = false`, aplique o restante e anexe manualmente na LabRole:
+- O agendamento usa **`aws_glue_trigger`** (`type = SCHEDULED`) com `glue_schedule_cron`. EventBridge `PutTargets` **não aceita** ARN de Glue job diretamente (`ValidationException: Provided Arn is not in correct format`).
+- **Role do job:** `glue_role_name` (default **`LabRole`**), mesma do Glue Job.
+- Policy inline opcional (`eventbridge_attach_iam_policy = true`, default **false**) só se você customizar targets EventBridge; o trigger SCHEDULED não precisa dela.
+- Policy manual (referência, se usar EventBridge Scheduler no futuro):
 
 ```json
 {
@@ -209,25 +210,26 @@ aws s3 ls "s3://$bucket/analytics/fact_orders/" --recursive
 - Apenas pedidos com `orderDate` acima do watermark anterior foram extraídos? (sim/não + nota)
 - `sales_amount = quantity_ordered * price_each` no delta? (sim/não)
 
-### Disparo EventBridge (3.4.3)
+### Disparo agendado (3.4.3)
 
-Registre um disparo agendado (cron) ou teste manual da regra.
+Registre um disparo do **Glue trigger SCHEDULED** (cron) ou teste manual (`aws glue start-trigger --name …`).
 
 | Item | Valor |
 |------|-------|
-| `eventbridge_rule_name` | |
+| `eventbridge_rule_name` (output = nome do trigger) | |
 | `glue_schedule_cron` | |
-| Role do target (`glue_role_name`) | |
 | Data/hora do disparo (UTC) | |
 | Glue `JobRunId` | |
 | Estado final | |
 
 ```powershell
+$trigger = terraform -chdir=terraform output -raw eventbridge_rule_name
+aws glue start-trigger --name "$trigger"
 $job = terraform -chdir=terraform output -raw glue_job_name
 aws glue get-job-runs --job-name "$job" --max-results 5
 ```
 
-**IAM (LabRole)** — se `terraform apply` falhou em `aws_iam_role_policy`, descreva o que foi anexado manualmente (`glue:StartJobRun`, trust `events.amazonaws.com` se necessário):
+**IAM (LabRole)** — o trigger SCHEDULED não exige policy extra; só preencha se tiver customizado algo manualmente:
 
 ```
 (preencher)
@@ -237,7 +239,7 @@ aws glue get-job-runs --job-name "$job" --max-results 5
 
 ### `AccessDenied: iam:CreateRole` / `iam:PutRolePolicy`
 
-Use `glue_role_name = "LabRole"` e, se necessário, `eventbridge_enabled = false` + policy manual (ver acima).
+Use `glue_role_name = "LabRole"`. Para pular o agendamento: `eventbridge_enabled = false`.
 
 ### Glue não conecta ao RDS
 

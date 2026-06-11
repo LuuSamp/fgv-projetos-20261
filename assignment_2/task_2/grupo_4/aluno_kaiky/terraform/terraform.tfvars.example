@@ -10,4 +10,5 @@ db_password = "SUA_SENHA"
 
 # glue_role_name = "LabRole"
 # eventbridge_enabled = true
+# eventbridge_attach_iam_policy = false  # set true only if your account allows iam:PutRolePolicy
 # glue_schedule_cron = "cron(0 12 ? * MON *)"

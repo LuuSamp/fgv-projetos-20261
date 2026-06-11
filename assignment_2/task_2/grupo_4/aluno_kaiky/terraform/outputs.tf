@@ -34,8 +34,8 @@ output "analytics_prefix" {
 }
 
 output "eventbridge_rule_name" {
-  value       = var.eventbridge_enabled ? aws_cloudwatch_event_rule.glue_etl_schedule[0].name : null
-  description = "EventBridge rule that starts the Glue job on schedule."
+  value       = var.eventbridge_enabled ? aws_glue_trigger.etl_schedule[0].name : null
+  description = "Glue scheduled trigger name (cron). EventBridge PutTargets cannot target Glue job ARNs directly."
 }
 
 output "eventbridge_schedule" {

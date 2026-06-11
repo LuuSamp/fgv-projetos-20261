@@ -71,3 +71,9 @@ variable "eventbridge_enabled" {
   default     = true
 }
 
+variable "eventbridge_attach_iam_policy" {
+  type        = bool
+  description = "Attach inline glue:StartJobRun policy to glue_role_name. Disable when the lab blocks iam:PutRolePolicy (LabRole usually already has access)."
+  default     = false
+}
+

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import boto3
 from constants import FACT_DATA_COLUMNS, FACT_KEYS, watermark_date_str
+from pipeline.spark_helpers import is_empty
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
@@ -37,30 +38,31 @@ def merge_into_prefix(
     merge_keys: list[str],
     data_columns: list[str],
 ) -> bool:
-    if delta_df.rdd.isEmpty():
+    if is_empty(delta_df):
         return False
 
-    delta = delta_df.select(*(merge_keys + data_columns)).dropDuplicates(merge_keys)
+    columns = merge_keys + [c for c in data_columns if c not in merge_keys]
+    delta = delta_df.select(*columns).dropDuplicates(merge_keys)
     if _path_exists(spark, base_path):
         existing = spark.read.parquet(base_path)
         for col in data_columns:
             if col not in existing.columns:
                 existing = existing.withColumn(col, F.lit(None))
-        existing = existing.select(*(merge_keys + data_columns))
+        existing = existing.select(*columns)
         merged = (
             existing.join(delta.select(*merge_keys), on=merge_keys, how="left_anti")
-            .select(*(merge_keys + data_columns))
+            .select(*columns)
             .unionByName(delta)
         )
     else:
         merged = delta
 
-    merged.coalesce(1).write.mode("overwrite").parquet(base_path)
+    merged.write.mode("overwrite").parquet(base_path)
     return True
 
 
 def merge_fact_partitions(*, spark: SparkSession, delta_fact: DataFrame, fact_base_path: str) -> list[tuple[int, int]]:
-    if delta_fact.rdd.isEmpty():
+    if is_empty(delta_fact):
         return []
 
     partitions = delta_fact.select("order_year", "order_month").distinct().collect()

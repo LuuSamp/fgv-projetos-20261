@@ -50,7 +50,7 @@ def connect(settings: Settings | None = None) -> Connection:
             if attempt == settings.mysql_connect_retries - 1:
                 raise ConnectionError(
                     f"Could not connect to MySQL at "
-                    f"{settings.db_host}:{settings.db_port}"
+                    f"{settings.db_host}:{settings.db_port}: {exc}"
                 ) from exc
 
             time.sleep(settings.mysql_connect_delay_seconds)
